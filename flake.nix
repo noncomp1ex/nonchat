@@ -12,6 +12,7 @@
 
         # backend
         go
+        air
         gopls
 
         # util
@@ -25,17 +26,34 @@
 
         (pkgs.writers.writeBashBin "non" ''
           if [ "$1" == "run" ]; then
-            python3 ./hot.py &
-            hotPID=$!
 
-            caddy run &
-            caddyPID=$!
+            # only backend
+            if [ "$2" == "back" ]; then
+              cd backend
 
-            trap "kill $caddyPID $hotPID 2>/dev/null; exit" SIGINT SIGTERM
+              if [ "$3" == "air" ]; then
+                air &
+              else
+                go run nonchat &
+              fi
 
-            wait -n
+              pid=$!
+              cd ..
+              trap "kill $pid 2>/dev/null; exit" SIGINT SIGTERM
+              wait -n
+              exit
+            fi
 
-            kill $caddyPID $hotPID 2>/dev/null
+            tmux split-window -h "python3 ./hot.py"
+
+            tmux split-window -v -b "caddy run"
+
+            tmux select-pane -L
+
+            tmux split-window -v "non run back air"
+
+            tmux select-pane -R
+            tmux select-pane -U
           fi
         '')
       ];
