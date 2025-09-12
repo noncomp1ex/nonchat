@@ -58,7 +58,14 @@ func mediaHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("ws from", r.Host)
 
-	peer, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	se := webrtc.SettingEngine{}
+	se.SetEphemeralUDPPortRange(50000, 51000) // pick a small range
+
+	mediaEngine := webrtc.MediaEngine{}
+	_ = mediaEngine.RegisterDefaultCodecs()
+
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(se), webrtc.WithMediaEngine(&mediaEngine))
+	peer, err := api.NewPeerConnection(webrtc.Configuration{})
 	peers = append(peers, Peer{peer: peer, ws: ws})
 
 	peer.OnTrack(func(track *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
