@@ -1,0 +1,4 @@
+:8080
+
+root * ./frontend
+file_server
