@@ -88,10 +88,14 @@ const openWS = () => {
       }
     });
 
+    peer.ontrack = (event) => {
+      console.log("ontrack", event)
+      document.getElementById("remote").srcObject = event.streams[0]
+    }
   }
 
   ws.onmessage = async (msg) => {
-    // console.log("Server says:", msg.data);
+    console.log("Server says:", msg.data);
 
     json = JSON.parse(msg.data)
 
@@ -102,6 +106,15 @@ const openWS = () => {
 
     if (json.type == "candidate") {
       await peer.addIceCandidate(JSON.parse(json["new-ice-candidate"]))
+    }
+
+    if (json.type == "offer") {
+      console.log("offer")
+      await peer.setRemoteDescription({ type: "offer", sdp: json.sdp })
+      const answer = await peer.createAnswer()
+      await peer.setLocalDescription(answer)
+      console.log(answer)
+      ws.send(JSON.stringify(answer))
     }
   }
 
