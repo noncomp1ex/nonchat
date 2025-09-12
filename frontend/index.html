@@ -3,17 +3,25 @@
 
 <head>
   <title>nochat</title>
-  <script>
-    if (location.hostname == "localhost")
-      (new WebSocket("ws://localhost:9071")).onmessage = (event) => {
-        location.reload()
-      }
-  </script>
+  <script src=./hot.js></script>
+  <script defer src=./media.js></script>
 </head>
 
 <body>
   <h1>hello, world!</h1>
-  <h1>hello, world!</h1>
+
+  <button id="openWS" onclick="openWS()">open conn</button>
+
+  <input type="text" id="wstext">
+  <button id="writeWS" onclick="writeWS()">write</button>
+
+
+  <button onclick="shareScreen()">share screen</button>
+  <button onclick="shareMicAudio()">share mic</button>
+
+  <video id="preview" autoplay playsinline></video>
+
+  <audio id="playback" autoplay></audio>
 </body>
 
 </html>
