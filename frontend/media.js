@@ -7,7 +7,7 @@ let backendURL
 if (window.DEVENV)
   backendURL = "http://localhost:8081"
 else
-  backendURL = "http://192.168.1.12:8081"
+  backendURL = "https://crol.bar"
 
 
 let input = document.querySelector('input#wstext')
