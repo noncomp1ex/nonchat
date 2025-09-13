@@ -78,7 +78,13 @@ const openWS = () => {
       }
     }
 
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    }).then(stream => {
       stream.getTracks().forEach(track => peer.addTrack(track, stream))
 
       return peer.createOffer()
