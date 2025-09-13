@@ -15,17 +15,20 @@ func blue(s string) string {
 	return "\x1b[36m" + s + "\x1b[m"
 }
 
+const (
+	PORT = 8081
+)
+
 type handler struct{}
 
 var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 
-var fire *websocket.Conn = nil
-var chro *websocket.Conn = nil
-
 type Peer struct {
-	peerConn    *webrtc.PeerConnection
-	ws          *websocket.Conn
-	tracks      []*webrtc.TrackRemote
+	peerConn *webrtc.PeerConnection
+	ws       *websocket.Conn
+
+	// local tracks we are sending to others
+	tracks []*webrtc.TrackLocalStaticRTP
 }
 
 var peers []*Peer = make([]*Peer, 0)
@@ -53,15 +56,8 @@ func getWebRTCAPI() *webrtc.API {
 	return api
 }
 
-func addTrack(other *Peer, track *webrtc.TrackRemote) {
-	// Create a local track to send to the other peer
-	localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, "audio", "sfu")
-	if err != nil {
-		fmt.Println("new track creation err: ", err)
-		return
-	}
-
-	sender, err := other.peerConn.AddTrack(localTrack)
+func addTrack(other *Peer, track *webrtc.TrackLocalStaticRTP) {
+	_, err := other.peerConn.AddTrack(track)
 	if err != nil {
 		fmt.Println("adding track to peer err: ", err)
 		return
@@ -84,35 +80,33 @@ func addTrack(other *Peer, track *webrtc.TrackRemote) {
 		other.ws.WriteMessage(websocket.TextMessage, jsonOffer)
 	}
 
-	// Forward RTP packets from remote track to local track
-	go func() {
-		buf := make([]byte, 1500)
-		for {
-			n, _, err := track.Read(buf)
-			if err != nil {
-				return
-			}
-			if _, err := localTrack.Write(buf[:n]); err != nil {
-				return
-			}
-		}
-	}()
-
-	// Optional: handle RTCP packets (ACKs, jitter reports)
-	go func() {
-		rtcpBuf := make([]byte, 1500)
-		for {
-			if _, _, err := sender.Read(rtcpBuf); err != nil {
-				return
-			}
-		}
-	}()
 }
 
 func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
 	return func(track *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
 		fmt.Println("Got track:", track.Kind())
-		peer.tracks = append(peer.tracks, track)
+
+		// Create a local track to send to the other peer
+		localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, "audio", "sfu")
+		if err != nil {
+			fmt.Println("new track creation err: ", err)
+			return
+		}
+		peer.tracks = append(peer.tracks, localTrack)
+
+		// catch send RTP packets from browser and write to local
+		go func() {
+			buf := make([]byte, 1500)
+			for {
+				n, _, err := track.Read(buf)
+				if err != nil {
+					return
+				}
+				if _, err := localTrack.Write(buf[:n]); err != nil {
+					return
+				}
+			}
+		}()
 
 		for _, other := range peers {
 			if other.peerConn == peer.peerConn && other.peerConn != nil {
@@ -122,8 +116,8 @@ func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTP
 				continue
 			}
 
-			// send new track to other peer
-			addTrack(other, track)
+			// send local track to other peers
+			addTrack(other, localTrack)
 		}
 	}
 }
@@ -136,12 +130,12 @@ func mediaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	fmt.Println("ws from", r.RemoteAddr)
+	fmt.Println(blue("ws from " + r.Header.Get("X-Forwarded-For")))
 
 	api := getWebRTCAPI()
 	peerConn, err := api.NewPeerConnection(webrtc.Configuration{})
 	peer := Peer{peerConn: peerConn, ws: ws}
-	peer.tracks = make([]*webrtc.TrackRemote, 0)
+	peer.tracks = make([]*webrtc.TrackLocalStaticRTP, 0)
 	peers = append(peers, &peer)
 	defer func() {
 		for i, p := range peers {
@@ -150,10 +144,10 @@ func mediaHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		fmt.Println("removing peer", peer, ", peers:", peers)
+		fmt.Println("removing peer, peers:", peers)
 	}()
 
-	// forward old tracks from rest of the peers now the new peer
+	// forward old local tracks from rest of the peers now the new peer
 	for _, other := range peers {
 		if other.peerConn == peer.peerConn {
 			continue
@@ -243,7 +237,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	listener, err := net.Listen("tcp", "0.0.0.0:8081")
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", PORT))
 	if err != nil {
 		fmt.Println(err)
 		return
