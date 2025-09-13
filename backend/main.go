@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
@@ -24,11 +23,13 @@ var fire *websocket.Conn = nil
 var chro *websocket.Conn = nil
 
 type Peer struct {
-	peer *webrtc.PeerConnection
-	ws   *websocket.Conn
+	peerConn    *webrtc.PeerConnection
+	ws          *websocket.Conn
+	tracks      []*webrtc.TrackRemote
+	addedTracks map[*webrtc.TrackRemote]bool
 }
 
-var peers []Peer = make([]Peer, 0)
+var peers []*Peer = make([]*Peer, 0)
 
 type Msg struct {
 	Type      string `json:"type"`
@@ -40,6 +41,113 @@ type Answer struct {
 	Answer webrtc.SessionDescription `json:"answer"`
 }
 
+// limiting the udp port range
+func getWebRTCAPI() *webrtc.API {
+	se := webrtc.SettingEngine{}
+	se.SetEphemeralUDPPortRange(50000, 51000)
+
+	mediaEngine := webrtc.MediaEngine{}
+	_ = mediaEngine.RegisterDefaultCodecs()
+
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(se), webrtc.WithMediaEngine(&mediaEngine))
+
+	return api
+}
+
+func addTrack(other *Peer, track *webrtc.TrackRemote) {
+	// Create a local track to send to the other peer
+	localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, "audio", "sfu")
+	if err != nil {
+		fmt.Println("new track creation err: ", err)
+		return
+	}
+
+	sender, err := other.peerConn.AddTrack(localTrack)
+	if err != nil {
+		fmt.Println("adding track to peer err: ", err)
+		return
+	}
+
+	other.addedTracks[track] = true
+
+	// offer
+	{
+		offer, err := other.peerConn.CreateOffer(nil)
+		if err != nil {
+			fmt.Println("offer create err:", err)
+			return
+		}
+		err = other.peerConn.SetLocalDescription(offer)
+		if err != nil {
+			fmt.Println("set local desc err:", err)
+			return
+		}
+
+		jsonOffer, _ := json.Marshal(Msg{Type: "offer", Sdp: offer.SDP})
+		other.ws.WriteMessage(websocket.TextMessage, jsonOffer)
+	}
+
+	// Forward RTP packets from remote track to local track
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			n, _, err := track.Read(buf)
+			if err != nil {
+				return
+			}
+			if _, err := localTrack.Write(buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Optional: handle RTCP packets (ACKs, jitter reports)
+	go func() {
+		rtcpBuf := make([]byte, 1500)
+		for {
+			if _, _, err := sender.Read(rtcpBuf); err != nil {
+				return
+			}
+		}
+	}()
+}
+
+func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
+	return func(track *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
+		fmt.Println("Got track:", track.Kind())
+		peer.tracks = append(peer.tracks, track)
+
+		for _, other := range peers {
+			if other.peerConn == peer.peerConn && other.peerConn != nil {
+				continue // don't forward to the same peer
+			}
+			if other.peerConn.ConnectionState() == webrtc.PeerConnectionStateClosed {
+				continue
+			}
+
+			// send new track to other peer
+			addTrack(other, track)
+
+			// send old tracks from other peer to the rest
+			for _, other2 := range peers {
+				if other2.peerConn == other.peerConn {
+					continue
+				}
+				for _, otherTrack := range other2.tracks {
+					// skip already added tracks
+					if other2.addedTracks[otherTrack] {
+						fmt.Println("skiP")
+						continue
+					}
+
+					fmt.Println("adding older")
+					addTrack(other2, otherTrack)
+				}
+			}
+		}
+	}
+}
+
 func mediaHandler(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -48,93 +156,18 @@ func mediaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	isChrome := strings.Contains(r.UserAgent(), "Chrome")
+	fmt.Println("ws from", r.RemoteAddr)
 
-	if isChrome {
-		chro = ws
-	} else {
-		fire = ws
-	}
+	api := getWebRTCAPI()
+	peerConn, err := api.NewPeerConnection(webrtc.Configuration{})
+	peer := Peer{peerConn: peerConn, ws: ws}
+	peer.tracks = make([]*webrtc.TrackRemote, 0)
+	peer.addedTracks = make(map[*webrtc.TrackRemote]bool, 0)
+	peers = append(peers, &peer)
 
-	fmt.Println("ws from", r.Host)
+	peerConn.OnTrack(onTrackHandler(&peer))
 
-	se := webrtc.SettingEngine{}
-	se.SetEphemeralUDPPortRange(50000, 51000) // pick a small range
-
-	mediaEngine := webrtc.MediaEngine{}
-	_ = mediaEngine.RegisterDefaultCodecs()
-
-	api := webrtc.NewAPI(webrtc.WithSettingEngine(se), webrtc.WithMediaEngine(&mediaEngine))
-	peer, err := api.NewPeerConnection(webrtc.Configuration{})
-	peers = append(peers, Peer{peer: peer, ws: ws})
-
-	peer.OnTrack(func(track *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
-		fmt.Println("Got track:", track.Kind())
-
-		for _, other := range peers {
-			if other.peer == peer && other.peer != nil {
-				continue // don't forward to the same peer
-			}
-			if other.peer.ConnectionState() == webrtc.PeerConnectionStateClosed {
-				continue
-			}
-			fmt.Println("found other")
-
-			// Create a local track to send to the other peer
-			localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, "audio", "sfu")
-			if err != nil {
-				panic(err)
-			}
-
-			sender, err := other.peer.AddTrack(localTrack)
-			if err != nil {
-				panic(err)
-			}
-
-			// offer
-			{
-				offer, err := other.peer.CreateOffer(nil)
-				if err != nil {
-					fmt.Println(err)
-					continue
-				}
-				err = other.peer.SetLocalDescription(offer)
-				if err != nil {
-					fmt.Println(err)
-					continue
-				}
-
-				jsonOffer, _ := json.Marshal(Msg{Type: "offer", Sdp: offer.SDP})
-				other.ws.WriteMessage(websocket.TextMessage, jsonOffer)
-			}
-
-			// Forward RTP packets from remote track to local track
-			go func() {
-				buf := make([]byte, 1500)
-				for {
-					n, _, err := track.Read(buf)
-					if err != nil {
-						return
-					}
-					if _, err := localTrack.Write(buf[:n]); err != nil {
-						return
-					}
-				}
-			}()
-
-			// Optional: handle RTCP packets (ACKs, jitter reports)
-			go func() {
-				rtcpBuf := make([]byte, 1500)
-				for {
-					if _, _, err := sender.Read(rtcpBuf); err != nil {
-						return
-					}
-				}
-			}()
-		}
-	})
-
-	peer.OnICECandidate(func(c *webrtc.ICECandidate) {
+	peerConn.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
@@ -164,47 +197,33 @@ func mediaHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if msg.Type == "offer" {
-			peer.SetRemoteDescription(webrtc.SessionDescription{
+		switch msg.Type {
+		case "offer":
+			peerConn.SetRemoteDescription(webrtc.SessionDescription{
 				Type: webrtc.SDPTypeOffer,
 				SDP:  msg.Sdp,
 			})
 
-			answer, err := peer.CreateAnswer(&webrtc.AnswerOptions{})
+			answer, err := peerConn.CreateAnswer(&webrtc.AnswerOptions{})
 			if err != nil {
 				fmt.Println("create answer error:", err)
 				break
 			}
 
-			peer.SetLocalDescription(answer)
+			peerConn.SetLocalDescription(answer)
 
 			ws.WriteJSON(answer)
-		}
 
-		if msg.Type == "answer" {
-			peer.SetRemoteDescription(
+		case "answer":
+			peerConn.SetRemoteDescription(
 				webrtc.SessionDescription{
 					Type: webrtc.SDPTypeAnswer,
 					SDP:  msg.Sdp,
 				})
+
+		case "new-ice-candidate":
+			peerConn.AddICECandidate(webrtc.ICECandidateInit{Candidate: msg.Candidate})
 		}
-
-		if msg.Type == "new-ice-candidate" {
-			peer.AddICECandidate(webrtc.ICECandidateInit{Candidate: msg.Candidate})
-		}
-
-		// var writeWS *websocket.Conn
-		// if isChrome {
-		// 	writeWS = fire
-		// } else {
-		// 	writeWS = chro
-		// }
-
-		// if err := writeWS.WriteMessage(t, msg); err != nil {
-		// 	fmt.Println("Write error:", err)
-		// 	break
-		// }
-
 	}
 }
 
