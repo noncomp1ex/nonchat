@@ -26,7 +26,6 @@ type Peer struct {
 	peerConn    *webrtc.PeerConnection
 	ws          *websocket.Conn
 	tracks      []*webrtc.TrackRemote
-	addedTracks map[*webrtc.TrackRemote]bool
 }
 
 var peers []*Peer = make([]*Peer, 0)
@@ -67,8 +66,6 @@ func addTrack(other *Peer, track *webrtc.TrackRemote) {
 		fmt.Println("adding track to peer err: ", err)
 		return
 	}
-
-	other.addedTracks[track] = true
 
 	// offer
 	{
@@ -127,23 +124,6 @@ func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTP
 
 			// send new track to other peer
 			addTrack(other, track)
-
-			// send old tracks from other peer to the rest
-			for _, other2 := range peers {
-				if other2.peerConn == other.peerConn {
-					continue
-				}
-				for _, otherTrack := range other2.tracks {
-					// skip already added tracks
-					if other2.addedTracks[otherTrack] {
-						fmt.Println("skiP")
-						continue
-					}
-
-					fmt.Println("adding older")
-					addTrack(other2, otherTrack)
-				}
-			}
 		}
 	}
 }
@@ -162,8 +142,26 @@ func mediaHandler(w http.ResponseWriter, r *http.Request) {
 	peerConn, err := api.NewPeerConnection(webrtc.Configuration{})
 	peer := Peer{peerConn: peerConn, ws: ws}
 	peer.tracks = make([]*webrtc.TrackRemote, 0)
-	peer.addedTracks = make(map[*webrtc.TrackRemote]bool, 0)
 	peers = append(peers, &peer)
+	defer func() {
+		for i, p := range peers {
+			if p == &peer {
+				peers = append(peers[:i], peers[i+1:]...)
+				break
+			}
+		}
+		fmt.Println("removing peer", peer, ", peers:", peers)
+	}()
+
+	// forward old tracks from rest of the peers now the new peer
+	for _, other := range peers {
+		if other.peerConn == peer.peerConn {
+			continue
+		}
+		for _, track := range other.tracks {
+			addTrack(&peer, track)
+		}
+	}
 
 	peerConn.OnTrack(onTrackHandler(&peer))
 
