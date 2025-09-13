@@ -1,0 +1,49 @@
+#openWS {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+
+  /* Make it HUGE */
+  font-size: 3rem;
+  padding: 2rem 4rem;
+  border: none;
+  border-radius: 2rem;
+
+  /* Cool red look */
+  background: linear-gradient(145deg, #ff1a1a, #cc0000);
+  color: white;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 30px rgba(255, 0, 0, 0.7);
+  cursor: pointer;
+
+  /* Smooth hover and click animations */
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Active state */
+#openWS.active {
+  background: linear-gradient(145deg, #550000, #110000);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%) scale(0.95);
+}
+
+#openWS:hover {
+  box-shadow: 0 0 50px rgba(255, 0, 0, 1);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+/* Spinning animation */
+.spin {
+  animation: spin 1s ease-out forwards;
+}
+
+@keyframes spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}

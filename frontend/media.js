@@ -53,13 +53,19 @@ let ws
 let peer
 
 const openWS = () => {
+  const btn = document.getElementById('openWS');
+  btn.classList.remove('spin'); // reset animation if clicked multiple times
+  void btn.offsetWidth; // force reflow so animation restarts
+  btn.classList.add('spin');
+
   let url = backendURL.replace("http", "ws") + "/api/media"
 
   ws = new WebSocket(url)
 
   ws.onopen = () => {
     window.WSOPENED = true
-    document.querySelector('button#openWS').disabled = true
+    document.querySelector('button#openWS').classList.add('active');
+    document.querySelector('button#openWS').textContent = "Connected"
 
     peer = new RTCPeerConnection()
 
@@ -119,7 +125,8 @@ const openWS = () => {
   }
 
   ws.onclose = () => {
-    document.querySelector('button#openWS').disabled = false
+    document.querySelector('button#openWS').classList.remove('active');
+    document.querySelector('button#openWS').textContent = "Connect"
   }
 }
 
