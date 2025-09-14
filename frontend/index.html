@@ -12,18 +12,21 @@
   <h1>hello, world!</h1>
 
   <button id="openWS" onclick="openWS()">Connect</button>
+  <button id="shareScreen" onclick="shareScreen()">Share Screen</button>
 
   <input type="text" id="wstext">
   <button id="writeWS" onclick="writeWS()">write</button>
 
 
-  <button onclick="shareScreen()">share screen</button>
-  <button onclick="shareMicAudio()">share mic</button>
+  <button onclick="shareMicAudio()">perview mic audio</button>
 
-  <video id="preview" autoplay playsinline></video>
+  <video id="preview" width="20%" height="20%" autoplay playsinline></video>
 
-  <audio id="remote" autoplay></audio>
+  <audio id="remote-audio" autoplay></audio>
   <audio id="playback" autoplay></audio>
+
+
+  <video id="remote-video" width="80%" height="80%" autoplay playsinline></video>
 </body>
 
 </html>

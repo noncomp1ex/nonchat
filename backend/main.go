@@ -87,11 +87,20 @@ func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTP
 		fmt.Println("Got track:", track.Kind())
 
 		// Create a local track to send to the other peer
-		localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, "audio", "sfu")
+		var trackType string
+		if track.Kind() == webrtc.RTPCodecTypeAudio {
+			trackType = "audio"
+		}
+		if track.Kind() == webrtc.RTPCodecTypeVideo {
+			trackType = "video"
+		}
+
+		localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, trackType, "sfu")
 		if err != nil {
 			fmt.Println("new track creation err: ", err)
 			return
 		}
+		fmt.Println("new track", localTrack.ID())
 		peer.tracks = append(peer.tracks, localTrack)
 
 		// catch send RTP packets from browser and write to local
@@ -109,7 +118,7 @@ func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTP
 		}()
 
 		for _, other := range peers {
-			if other.peerConn == peer.peerConn && other.peerConn != nil {
+			if other.peerConn == peer.peerConn || other.peerConn == nil {
 				continue // don't forward to the same peer
 			}
 			if other.peerConn.ConnectionState() == webrtc.PeerConnectionStateClosed {

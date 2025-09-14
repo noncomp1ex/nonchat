@@ -10,25 +10,11 @@ else
   backendURL = "https://crol.bar"
 
 
-let input = document.querySelector('input#wstext')
-let button = document.querySelector('button#writeWS')
+let screenShareButton = document.querySelector('button#shareScreen')
+screenShareButton.disabled = true
 
-button.disabled = input.value.trim() === "" || !window.WSOPENED;
-input.addEventListener("input", () => {
-  button.disabled = input.value.trim() === "" || !window.WSOPENED;
-});
+let openWSButton = document.querySelector('button#openWS')
 
-const shareScreen = () => {
-  navigator.mediaDevices.getDisplayMedia({
-    video: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_video_tracks
-    audio: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_audio_tracks
-  }).then(stream => {
-    console.log("screen stream tracks", stream.getTracks())
-
-    const videoElement = document.querySelector('video#preview');
-    videoElement.srcObject = stream;
-  })
-}
 
 const shareMicAudio = () => {
   navigator.mediaDevices.getUserMedia(
@@ -64,8 +50,9 @@ const openWS = () => {
 
   ws.onopen = () => {
     window.WSOPENED = true
-    document.querySelector('button#openWS').classList.add('active');
-    document.querySelector('button#openWS').textContent = "Connected"
+    openWSButton.classList.add('active');
+    openWSButton.textContent = "Connected"
+    openWSButton.disabled = true
 
     peer = new RTCPeerConnection()
 
@@ -84,25 +71,39 @@ const openWS = () => {
         noiseSuppression: true,
         autoGainControl: true,
       }
-    }).then(stream => {
+    }).then((stream) => {
       stream.getTracks().forEach(track => peer.addTrack(track, stream))
-
       return peer.createOffer()
     }).then(async offer => {
       await peer.setLocalDescription(offer);
       ws.send(JSON.stringify(offer));
     })
 
-
     peer.addEventListener('connectionstatechange', event => {
       if (peer.connectionState === 'connected') {
         console.log("connected")
+        screenShareButton.disabled = false
       }
     });
 
     peer.ontrack = (event) => {
-      console.log("ontrack", event)
-      document.getElementById("remote").srcObject = event.streams[0]
+      console.log("Got ", event.track.kind ," track", event)
+      if (event.track.kind == "audio") {
+        document.querySelector("audio#remote-audio").srcObject = event.streams[0]
+      }
+      if (event.track.kind == "video") {
+        const videoEl = document.querySelector('video#remote-video')
+        console.log("Setting video element:", videoEl)
+
+
+        videoEl.srcObject = event.streams[0]
+
+        videoEl.play()
+
+        videoEl.onloadedmetadata = () => console.log("Video metadata loaded")
+        videoEl.oncanplay = () => console.log("Video can play")
+        videoEl.onerror = (e) => console.error("Video error:", e)
+      }
     }
   }
 
@@ -117,7 +118,12 @@ const openWS = () => {
     }
 
     if (json.type == "candidate") {
-      await peer.addIceCandidate(JSON.parse(json["new-ice-candidate"]))
+      try {
+        const candidate = JSON.parse(json["new-ice-candidate"])
+        await peer.addIceCandidate(candidate)
+      } catch (error) {
+        console.error("Error adding ICE candidate:", error)
+      }
     }
 
     if (json.type == "offer") {
@@ -133,7 +139,24 @@ const openWS = () => {
   ws.onclose = () => {
     document.querySelector('button#openWS').classList.remove('active');
     document.querySelector('button#openWS').textContent = "Connect"
+    screenShareButton.disabled = true
+    openWSButton.disabled = false
   }
+}
+
+const shareScreen = () => {
+  navigator.mediaDevices.getDisplayMedia({
+    video: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_video_tracks
+    audio: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_audio_tracks
+  }).then(stream => {
+    stream.getVideoTracks().forEach(track => peer.addTrack(track, stream))
+
+    document.querySelector('video#preview').srcObject = stream
+    return peer.createOffer()
+  }).then(async offer => {
+    await peer.setLocalDescription(offer);
+    ws.send(JSON.stringify(offer));
+  })
 }
 
 const writeWS = () => {
