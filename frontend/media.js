@@ -93,16 +93,7 @@ const openWS = () => {
       }
       if (event.track.kind == "video") {
         const videoEl = document.querySelector('video#remote-video')
-        console.log("Setting video element:", videoEl)
-
-
-        videoEl.srcObject = event.streams[0]
-
-        videoEl.play()
-
-        videoEl.onloadedmetadata = () => console.log("Video metadata loaded")
-        videoEl.oncanplay = () => console.log("Video can play")
-        videoEl.onerror = (e) => console.error("Video error:", e)
+        videoEl.srcObject = new MediaStream([event.track])
       }
     }
   }
@@ -113,8 +104,7 @@ const openWS = () => {
     json = JSON.parse(msg.data)
 
     if (json.type == "answer") {
-      const remoteDesc = new RTCSessionDescription(json);
-      await peer.setRemoteDescription(remoteDesc);
+      await peer.setRemoteDescription({ type: "answer", sdp: json.sdp });
     }
 
     if (json.type == "candidate") {
@@ -132,7 +122,7 @@ const openWS = () => {
       const answer = await peer.createAnswer()
       await peer.setLocalDescription(answer)
       console.log(answer)
-      ws.send(JSON.stringify(answer))
+      ws.send(JSON.stringify({ type: "answer", sdp: answer.sdp }))
     }
   }
 
