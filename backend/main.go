@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/pion/rtcp"
 	"github.com/gorilla/websocket"
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -26,16 +26,16 @@ type handler struct{}
 var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 
 type Track struct {
-	track *webrtc.TrackLocalStaticRTP
+	track           *webrtc.TrackLocalStaticRTP
 	remoteTrackSSRC uint32
 }
 
 type Peer struct {
-	peerConn *webrtc.PeerConnection
-	ws       *websocket.Conn
-	mu       sync.Mutex
-    isNegotiating bool
-    needsNegotiation bool
+	peerConn         *webrtc.PeerConnection
+	ws               *websocket.Conn
+	mu               sync.Mutex
+	isNegotiating    bool
+	needsNegotiation bool
 
 	// local tracks we are sending to others
 	tracks []*Track
@@ -89,21 +89,21 @@ func handleRTCP(publisher *Peer, subscriber *webrtc.RTPSender, trackSSRC uint32)
 
 		// fix up the ssrc field in the packet to be the remote track one
 		for i, pkt := range rtcpPackets {
-            switch p := pkt.(type) {
-            case *rtcp.PictureLossIndication:
-                p.MediaSSRC = trackSSRC
-                rtcpPackets[i] = p
-            case *rtcp.FullIntraRequest:
-                p.MediaSSRC = trackSSRC
-                rtcpPackets[i] = p
-            case *rtcp.TransportLayerNack:
-                p.MediaSSRC = trackSSRC
-                rtcpPackets[i] = p
+			switch p := pkt.(type) {
+			case *rtcp.PictureLossIndication:
+				p.MediaSSRC = trackSSRC
+				rtcpPackets[i] = p
+			case *rtcp.FullIntraRequest:
+				p.MediaSSRC = trackSSRC
+				rtcpPackets[i] = p
+			case *rtcp.TransportLayerNack:
+				p.MediaSSRC = trackSSRC
+				rtcpPackets[i] = p
+				// default:
+				// 	pkt = rtcpPackets[i]
+				// 	fmt.Printf("[RTCP] from subscriber %T: %T -> %s, dest: %V\n", subscriber, pkt, pkt, pkt.DestinationSSRC())
 			}
-
-			// pkt = rtcpPackets[i]
-            // fmt.Printf("[RTCP] from subscriber %T: %T -> %s, dest: %V\n", subscriber, pkt, pkt, pkt.DestinationSSRC())
-        }
+		}
 
 		if len(rtcpPackets) > 0 {
 			if writeErr := publisher.peerConn.WriteRTCP(rtcpPackets); writeErr != nil {
@@ -137,13 +137,12 @@ func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTP
 
 		// catch send RTP packets from browser and write to local
 		go func() {
-			buf := make([]byte, 1500)
 			for {
-				n, _, err := track.Read(buf)
+				pkt, _, err := track.ReadRTP()
 				if err != nil {
 					return
 				}
-				if _, err := localTrack.Write(buf[:n]); err != nil {
+				if err := localTrack.WriteRTP(pkt); err != nil {
 					return
 				}
 			}
@@ -168,30 +167,30 @@ func onTrackHandler(peer *Peer) func(track *webrtc.TrackRemote, recv *webrtc.RTP
 }
 
 func (p *Peer) negotiate() {
-    p.mu.Lock()
-    if p.isNegotiating {
-        p.needsNegotiation = true
-        p.mu.Unlock()
-        return
-    }
-    p.isNegotiating = true
-    p.mu.Unlock()
+	p.mu.Lock()
+	if p.isNegotiating {
+		p.needsNegotiation = true
+		p.mu.Unlock()
+		return
+	}
+	p.isNegotiating = true
+	p.mu.Unlock()
 
-    go func() {
-        offer, err := p.peerConn.CreateOffer(nil)
-        if err != nil {
-            fmt.Println("offer create err:", err)
-            return
-        }
-        if err := p.peerConn.SetLocalDescription(offer); err != nil {
-            fmt.Println("set local desc err:", err)
-            return
-        }
+	go func() {
+		offer, err := p.peerConn.CreateOffer(nil)
+		if err != nil {
+			fmt.Println("offer create err:", err)
+			return
+		}
+		if err := p.peerConn.SetLocalDescription(offer); err != nil {
+			fmt.Println("set local desc err:", err)
+			return
+		}
 
-        msg := Msg{Type: "offer", Sdp: offer.SDP}
-        data, _ := json.Marshal(msg)
-        p.ws.WriteMessage(websocket.TextMessage, data)
-    }()
+		msg := Msg{Type: "offer", Sdp: offer.SDP}
+		data, _ := json.Marshal(msg)
+		p.ws.WriteMessage(websocket.TextMessage, data)
+	}()
 }
 
 func mediaHandler(w http.ResponseWriter, r *http.Request) {

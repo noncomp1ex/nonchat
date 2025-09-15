@@ -12,6 +12,8 @@ else
 
 let screenShareButton = document.querySelector('button#shareScreen')
 screenShareButton.disabled = true
+let camShareButton = document.querySelector('button#shareCam')
+camShareButton.disabled = true
 
 let openWSButton = document.querySelector('button#openWS')
 
@@ -70,7 +72,8 @@ const openWS = () => {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-      }
+      },
+      video: false,
     }).then((stream) => {
       stream.getTracks().forEach(track => peer.addTrack(track, stream))
       return peer.createOffer()
@@ -83,24 +86,37 @@ const openWS = () => {
       if (peer.connectionState === 'connected') {
         console.log("connected")
         screenShareButton.disabled = false
+        camShareButton.disabled = false
       }
     });
 
     peer.ontrack = (event) => {
-      console.log("Got ", event.track.kind ," track", event)
-      if (event.track.kind == "audio") {
-        document.querySelector("audio#remote-audio").srcObject = event.streams[0]
+      console.log("Got ", event.track.kind, " track", event)
+
+      switch (event.track.kind) {
+        case "audio":
+          document.querySelector("audio#remote-audio").srcObject = event.streams[0]
+          break;
+        case "video":
+
+          switch (event.track.label) {
+            case "video": // cam
+              const videocamEL = document.querySelector('video#remote-video-cam')
+              videocamEL.srcObject = new MediaStream([event.track])
+              break;
+            case "remote video": // screen share
+              const videoscreenEl = document.querySelector('video#remote-video-screen')
+              videoscreenEl.srcObject = new MediaStream([event.track])
+              break;
+          }
+
+          break
       }
-      if (event.track.kind == "video") {
-        const videoEl = document.querySelector('video#remote-video')
-        videoEl.srcObject = new MediaStream([event.track])
-      }
+
     }
   }
 
   ws.onmessage = async (msg) => {
-    console.log("Server says:", msg.data);
-
     json = JSON.parse(msg.data)
 
     if (json.type == "answer") {
@@ -117,11 +133,9 @@ const openWS = () => {
     }
 
     if (json.type == "offer") {
-      console.log("offer")
       await peer.setRemoteDescription({ type: "offer", sdp: json.sdp })
       const answer = await peer.createAnswer()
       await peer.setLocalDescription(answer)
-      console.log(answer)
       ws.send(JSON.stringify({ type: "answer", sdp: answer.sdp }))
     }
   }
@@ -130,24 +144,45 @@ const openWS = () => {
     document.querySelector('button#openWS').classList.remove('active');
     document.querySelector('button#openWS').textContent = "Connect"
     screenShareButton.disabled = true
+    camShareButton.disabled = true
     openWSButton.disabled = false
   }
 }
 
 const shareScreen = () => {
   navigator.mediaDevices.getDisplayMedia({
-    video: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_video_tracks
-    audio: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_audio_tracks
+    video: {
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30, max: 30 },
+    }, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_video_tracks
+    audio: false, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_audio_tracks
   }).then(stream => {
-    stream.getVideoTracks().forEach(track => peer.addTrack(track, stream))
+    stream.getTracks().forEach(track => peer.addTrack(track, stream))
 
-    document.querySelector('video#preview').srcObject = stream
+    const videoPreview = document.querySelector('video#preview')
+    videoPreview.srcObject = stream
+    videoPreview.muted = true
     return peer.createOffer()
   }).then(async offer => {
     await peer.setLocalDescription(offer);
     ws.send(JSON.stringify(offer));
   })
 }
+
+const shareCam = () => {
+  navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: true,
+  }).then((stream) => {
+    stream.getTracks().forEach(track => peer.addTrack(track, stream))
+    return peer.createOffer()
+  }).then(async offer => {
+    await peer.setLocalDescription(offer);
+    ws.send(JSON.stringify(offer));
+  })
+}
+
 
 const writeWS = () => {
   if (!window.WSOPENED) {
