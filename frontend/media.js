@@ -98,16 +98,12 @@ const openWS = () => {
           document.querySelector("audio#remote-audio").srcObject = event.streams[0]
           break;
         case "video":
-
-          switch (event.track.label) {
-            case "video": // cam
-              const videocamEL = document.querySelector('video#remote-video-cam')
-              videocamEL.srcObject = new MediaStream([event.track])
-              break;
-            case "remote video": // screen share
-              const videoscreenEl = document.querySelector('video#remote-video-screen')
-              videoscreenEl.srcObject = new MediaStream([event.track])
-              break;
+          if (!document.querySelector('video#remote-video-screen').srcObject) { // screen
+            const videoscreenEl = document.querySelector('video#remote-video-screen')
+            videoscreenEl.srcObject = new MediaStream([event.track])
+          } else { // cam
+            const videocamEL = document.querySelector('video#remote-video-cam')
+            videocamEL.srcObject = new MediaStream([event.track])
           }
 
           break
