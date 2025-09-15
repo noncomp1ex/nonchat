@@ -156,7 +156,7 @@ const shareScreen = () => {
       height: { ideal: 1080 },
       frameRate: { ideal: 30, max: 30 },
     }, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_video_tracks
-    audio: false, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_audio_tracks
+    audio: true, // https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#instance_properties_of_audio_tracks
   }).then(stream => {
     stream.getTracks().forEach(track => peer.addTrack(track, stream))
 
