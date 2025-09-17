@@ -9,27 +9,18 @@
 </head>
 
 <body>
-  <h1>hello, world!</h1>
+  <div id="container">
+    <button id="openWS" onclick="openWS()">Connect</button>
+    <button id="shareScreen" onclick="shareScreen()">Share Screen</button>
+    <button id="shareCam" onclick="shareCam()">Share Cam</button>
 
-  <button id="openWS" onclick="openWS()">Connect</button>
-  <button id="shareScreen" onclick="shareScreen()">Share Screen</button>
-  <button id="shareCam" onclick="shareCam()">Share Cam</button>
+    <audio id="playback" autoplay></audio>
 
-  <input type="text" id="wstext">
-  <button id="writeWS" onclick="writeWS()">write</button>
-
-
-  <button onclick="shareMicAudio()">perview mic audio</button>
-
-  <video id="preview" width="20%" height="20%" autoplay playsinline></video>
-
-  <audio id="remote-audio" autoplay></audio>
-  <audio id="playback" autoplay></audio>
-
-
-  <video id="remote-video-screen" width="80%" height="80%" autoplay playsinline></video>
-
-  <video id="remote-video-cam" width="80%" height="80%" autoplay playsinline></video>
+    <video id="preview" width="20%" height="20%" autoplay playsinline></video>
+    <audio id="remote-audio" autoplay></audio>
+    <video id="remote-video-screen" width="80%" height="80%" autoplay playsinline></video>
+    <video id="remote-video-cam" width="80%" height="80%" autoplay playsinline></video>
+  </div>
 </body>
 
 </html>
